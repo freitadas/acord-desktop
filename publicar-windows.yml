@@ -1,0 +1,51 @@
+name: Publicar Acord para Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Baixar projeto
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Gerar Acord-Setup.exe
+        run: npm run build
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Confirmar instalador
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/Acord-Setup.exe")) {
+            throw "Acord-Setup.exe não foi gerado."
+          }
+          Get-Item "dist/Acord-Setup.exe" | Format-List Name,Length,FullName
+
+      - name: Publicar instalador
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete windows-latest --yes --cleanup-tag || true
+          gh release create windows-latest "dist/Acord-Setup.exe#Acord-Setup.exe" \
+            --target "${{ github.sha }}" \
+            --title "Acord para Windows" \
+            --notes "Instalador independente do Acord para Windows." \
+            --latest
