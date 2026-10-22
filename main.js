@@ -21,6 +21,7 @@ async function createWindow(){
     autoHideMenuBar:true,
     backgroundColor:'#07110e',
     show:false,
+    icon:__dirname+'/icon.ico',
     webPreferences:{
       nodeIntegration:false,
       contextIsolation:true,
@@ -30,7 +31,7 @@ async function createWindow(){
   });
 
   win.webContents.setUserAgent(
-    win.webContents.getUserAgent()+' AcordDesktop/5.3'
+    win.webContents.getUserAgent()+' AcordDesktop/5.4'
   );
 
   win.webContents.setWindowOpenHandler(({url})=>{
