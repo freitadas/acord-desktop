@@ -2,7 +2,7 @@ const { app, BrowserWindow, session, shell, desktopCapturer, Notification } = re
 const { autoUpdater } = require('electron-updater');
 
 const ACORD_ORIGIN='https://d2-camera.bozzidavi.workers.dev';
-const ACORD_URL=ACORD_ORIGIN+'/?desktop=1';
+const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.2';
 const UPDATE_CHECK_MS=1000*60*60*6;
 
 function parseUrl(value=''){
@@ -56,6 +56,17 @@ function setupUpdater(){
   setInterval(check,UPDATE_CHECK_MS);
 }
 
+async function clearStaleUiCaches(){
+  const ses=session.defaultSession;
+  try{await ses.clearCache()}catch(error){console.warn('Cache HTTP:',error?.message||error)}
+  try{
+    await ses.clearStorageData({
+      origin:ACORD_ORIGIN,
+      storages:['serviceworkers','cachestorage']
+    });
+  }catch(error){console.warn('Cache do app:',error?.message||error)}
+}
+
 async function createWindow(){
   const win=new BrowserWindow({
     width:1360,
@@ -78,7 +89,7 @@ async function createWindow(){
   });
 
   win.webContents.setUserAgent(
-    win.webContents.getUserAgent()+' AcordDesktop/6.0'
+    win.webContents.getUserAgent()+' AcordDesktop/6.2'
   );
 
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
@@ -98,12 +109,22 @@ async function createWindow(){
     console.warn('Renderizador reiniciado:',details?.reason||'desconhecido');
   });
 
+  let retried=false;
+  win.webContents.on('did-fail-load',(_event,errorCode,errorDescription,validatedURL,isMainFrame)=>{
+    if(!isMainFrame || retried) return;
+    retried=true;
+    console.warn('Falha ao carregar Acord:',errorCode,errorDescription,validatedURL);
+    setTimeout(()=>win.loadURL(ACORD_URL+'&retry=1').catch(()=>{}),1200);
+  });
+
   win.once('ready-to-show',()=>win.show());
   await win.loadURL(ACORD_URL);
   return win;
 }
 
 app.whenReady().then(async()=>{
+  await clearStaleUiCaches();
+
   session.defaultSession.setPermissionCheckHandler(
     (_webContents,permission,requestingOrigin)=>{
       if(!isAcordUrl(requestingOrigin)) return false;
