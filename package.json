@@ -1,12 +1,13 @@
 {
   "name": "acord-desktop",
-  "version": "5.5.0",
+  "version": "6.0.0",
   "private": true,
   "description": "Acord Desktop independente para Windows",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win nsis --x64 --publish never"
+    "build": "electron-builder --win nsis --x64 --publish never",
+    "release": "electron-builder --win nsis --x64 --publish always"
   },
   "devDependencies": {
     "electron": "45.0.0",
@@ -43,7 +44,18 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Acord",
       "uninstallDisplayName": "Acord"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "freitadas",
+        "repo": "acord-desktop",
+        "releaseType": "release"
+      }
+    ]
   },
-  "author": "Acord"
+  "author": "Acord",
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  }
 }

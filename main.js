@@ -1,14 +1,59 @@
-const { app, BrowserWindow, session, shell, desktopCapturer } = require('electron');
+const { app, BrowserWindow, session, shell, desktopCapturer, Notification } = require('electron');
+const { autoUpdater } = require('electron-updater');
 
 const ACORD_ORIGIN='https://d2-camera.bozzidavi.workers.dev';
 const ACORD_URL=ACORD_ORIGIN+'/?desktop=1';
+const UPDATE_CHECK_MS=1000*60*60*6;
+
+function parseUrl(value=''){
+  try{return new URL(value)}catch{return null}
+}
 
 function isAcordUrl(value=''){
+  const url=parseUrl(value);
+  return !!url && url.origin===ACORD_ORIGIN;
+}
+
+function canOpenExternal(value=''){
+  const url=parseUrl(value);
+  return !!url && ['https:','mailto:'].includes(url.protocol);
+}
+
+function openExternalSafe(value=''){
+  if(!canOpenExternal(value)) return false;
+  shell.openExternal(value).catch(()=>{});
+  return true;
+}
+
+function notify(title,body){
   try{
-    return new URL(value).origin===ACORD_ORIGIN;
-  }catch{
-    return false;
-  }
+    if(Notification.isSupported()){
+      new Notification({title,body}).show();
+    }
+  }catch{}
+}
+
+function setupUpdater(){
+  if(!app.isPackaged) return;
+
+  autoUpdater.autoDownload=true;
+  autoUpdater.autoInstallOnAppQuit=true;
+
+  autoUpdater.on('update-available',info=>{
+    notify('Acord','Atualização '+String(info?.version||'nova')+' disponível. Baixando em segundo plano.');
+  });
+
+  autoUpdater.on('update-downloaded',info=>{
+    notify('Acord atualizado','A versão '+String(info?.version||'nova')+' será instalada quando você fechar o aplicativo.');
+  });
+
+  autoUpdater.on('error',error=>{
+    console.warn('Atualizador do Acord:',error?.message||error);
+  });
+
+  const check=()=>autoUpdater.checkForUpdatesAndNotify().catch(()=>{});
+  setTimeout(check,12000);
+  setInterval(check,UPDATE_CHECK_MS);
 }
 
 async function createWindow(){
@@ -26,36 +71,53 @@ async function createWindow(){
       nodeIntegration:false,
       contextIsolation:true,
       sandbox:true,
-      webSecurity:true
+      webSecurity:true,
+      allowRunningInsecureContent:false,
+      webviewTag:false
     }
   });
 
   win.webContents.setUserAgent(
-    win.webContents.getUserAgent()+' AcordDesktop/5.4'
+    win.webContents.getUserAgent()+' AcordDesktop/6.0'
   );
 
-  win.webContents.setWindowOpenHandler(({url})=>{
-    if(isAcordUrl(url)){
-      return {action:'allow'};
-    }
+  win.webContents.on('will-attach-webview',event=>event.preventDefault());
 
-    shell.openExternal(url).catch(()=>{});
+  win.webContents.setWindowOpenHandler(({url})=>{
+    openExternalSafe(url);
     return {action:'deny'};
   });
 
   win.webContents.on('will-navigate',(event,url)=>{
-    if(!isAcordUrl(url)){
-      event.preventDefault();
-      shell.openExternal(url).catch(()=>{});
-    }
+    if(isAcordUrl(url)) return;
+    event.preventDefault();
+    openExternalSafe(url);
+  });
+
+  win.webContents.on('render-process-gone',(_event,details)=>{
+    console.warn('Renderizador reiniciado:',details?.reason||'desconhecido');
   });
 
   win.once('ready-to-show',()=>win.show());
-
   await win.loadURL(ACORD_URL);
+  return win;
 }
 
 app.whenReady().then(async()=>{
+  session.defaultSession.setPermissionCheckHandler(
+    (_webContents,permission,requestingOrigin)=>{
+      if(!isAcordUrl(requestingOrigin)) return false;
+      return [
+        'media',
+        'notifications',
+        'fullscreen',
+        'pointerLock',
+        'clipboard-sanitized-write',
+        'display-capture'
+      ].includes(permission);
+    }
+  );
+
   session.defaultSession.setPermissionRequestHandler(
     (webContents,permission,callback)=>{
       const allowed=isAcordUrl(webContents.getURL()) && [
@@ -66,7 +128,6 @@ app.whenReady().then(async()=>{
         'clipboard-sanitized-write',
         'display-capture'
       ].includes(permission);
-
       callback(allowed);
     }
   );
@@ -79,11 +140,7 @@ app.whenReady().then(async()=>{
             types:['screen','window'],
             thumbnailSize:{width:1,height:1}
           });
-
-          callback({
-            video:sources[0],
-            audio:'loopback'
-          });
+          callback({video:sources[0],audio:'loopback'});
         }catch{
           callback({});
         }
@@ -93,6 +150,7 @@ app.whenReady().then(async()=>{
   }
 
   await createWindow();
+  setupUpdater();
 
   app.on('activate',async()=>{
     if(BrowserWindow.getAllWindows().length===0){
@@ -101,8 +159,10 @@ app.whenReady().then(async()=>{
   });
 });
 
+app.on('web-contents-created',(_event,contents)=>{
+  contents.on('will-attach-webview',event=>event.preventDefault());
+});
+
 app.on('window-all-closed',()=>{
-  if(process.platform!=='darwin'){
-    app.quit();
-  }
+  if(process.platform!=='darwin') app.quit();
 });
