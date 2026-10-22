@@ -1,0 +1,42 @@
+name: Gerar Acord Setup
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Baixar projeto
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Gerar instalador independente
+        run: npm run build
+
+      - name: Publicar Acord-Setup.exe
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete windows-latest --yes --cleanup-tag || true
+          gh release create windows-latest "dist/Acord-Setup.exe#Acord-Setup.exe" \
+            --target "${{ github.sha }}" \
+            --title "Acord para Windows" \
+            --notes "Instalador independente do Acord para Windows. Não requer Chrome ou Edge instalado." \
+            --latest

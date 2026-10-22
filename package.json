@@ -1,0 +1,48 @@
+{
+  "name": "acord-desktop",
+  "version": "5.3.0",
+  "private": true,
+  "description": "Acord Desktop independente para Windows",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.acord.desktop",
+    "productName": "Acord",
+    "artifactName": "Acord-Setup.exe",
+    "files": [
+      "main.js",
+      "icon-512.png",
+      "icon.ico"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Acord",
+      "uninstallDisplayName": "Acord"
+    }
+  }
+}
