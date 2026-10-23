@@ -1,6 +1,6 @@
 const { app, BrowserWindow, session, shell, desktopCapturer, Notification, ipcMain } = require('electron');
 const path = require('path');
-const {spawn}=require('child_process');
+const {registerSharedControl,stopSharedControlHost}=require('./shared-control-host');
 
 // Windows/Chromium: mantém a captura e a reprodução em SDR/sRGB e evita
 // overlays de vídeo que podem provocar dominante verde em screen share.
@@ -17,12 +17,9 @@ try{
 }
 
 const ACORD_ORIGIN='https://d2-camera.bozzidavi.workers.dev';
-const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.6.0';
-const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.6.0&fallback=1';
+const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.0';
+const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.0&fallback=1';
 const UPDATE_CHECK_MS=1000*60*60*6;
-
-let sharedControlProcess=null;
-let sharedControlEnabled=false;
 
 function isTrustedAcordSender(event){
   try{
@@ -31,81 +28,7 @@ function isTrustedAcordSender(event){
   }catch{return false}
 }
 
-function stopSharedControlHost(){
-  sharedControlEnabled=false;
-  if(sharedControlProcess){
-    try{sharedControlProcess.stdin.write(JSON.stringify({type:'release-all'})+'\n')}catch{}
-    try{sharedControlProcess.kill()}catch{}
-    sharedControlProcess=null;
-  }
-}
-
-function ensureSharedControlHost(){
-  if(process.platform!=='win32') return null;
-  if(sharedControlProcess && !sharedControlProcess.killed) return sharedControlProcess;
-  try{
-    sharedControlProcess=spawn('powershell.exe',[
-      '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
-      '-File',path.join(__dirname,'control-host.ps1')
-    ],{windowsHide:true,stdio:['pipe','ignore','pipe']});
-    sharedControlProcess.on('exit',()=>{sharedControlProcess=null;sharedControlEnabled=false});
-    sharedControlProcess.stderr?.on('data',data=>console.warn('Controle compartilhado:',String(data||'').trim()));
-    return sharedControlProcess;
-  }catch(error){
-    console.error('Controle compartilhado indisponível:',error);
-    sharedControlProcess=null;
-    sharedControlEnabled=false;
-    return null;
-  }
-}
-
-function validSharedControlInput(value){
-  if(!value || typeof value!=='object') return null;
-  const type=String(value.type||'');
-  if(type==='pointer-move'){
-    const x=Number(value.x),y=Number(value.y);
-    if(!Number.isFinite(x)||!Number.isFinite(y))return null;
-    return {type,x:Math.max(0,Math.min(1,x)),y:Math.max(0,Math.min(1,y))};
-  }
-  if(type==='pointer-button') return {type,button:Math.max(0,Math.min(2,Number(value.button)||0)),down:!!value.down};
-  if(type==='wheel') return {type,deltaY:Math.max(-1200,Math.min(1200,Number(value.deltaY)||0))};
-  if(type==='key'){
-    const code=String(value.code||'').slice(0,32);
-    if(!/^(Key[A-Z]|Digit[0-9]|F(?:[1-9]|1[0-2])|Space|Enter|Escape|Backspace|Tab|Arrow(?:Left|Up|Right|Down)|Home|End|PageUp|PageDown|Insert|Delete|Shift(?:Left|Right)|Control(?:Left|Right)|Alt(?:Left|Right)|Minus|Equal|BracketLeft|BracketRight|Backslash|Semicolon|Quote|Comma|Period|Slash|Backquote)$/.test(code))return null;
-    return {type,code,down:!!value.down};
-  }
-  if(type==='release-all') return {type};
-  return null;
-}
-
-ipcMain.handle('acord-shared-control-host',(event,enabled)=>{
-  if(!isTrustedAcordSender(event)) return {ok:false,error:'Origem não autorizada'};
-  if(process.platform!=='win32') return {ok:false,error:'Controle compartilhado do host requer Windows'};
-  if(!enabled){stopSharedControlHost();return {ok:true,enabled:false}}
-  const helper=ensureSharedControlHost();
-  if(!helper) return {ok:false,error:'Não foi possível iniciar o controle do Windows'};
-  sharedControlEnabled=true;
-  return {ok:true,enabled:true};
-});
-
-ipcMain.on('acord-shared-control-input',(event,payload)=>{
-  if(!sharedControlEnabled || !isTrustedAcordSender(event)) return;
-  const envelope=payload&&typeof payload==='object'&&payload.event?payload:{event:payload,permissions:{mouse:true,keyboard:true,gamepad:false}};
-  const safe=validSharedControlInput(envelope.event);
-  if(!safe) return;
-  const permissions=envelope.permissions&&typeof envelope.permissions==='object'?envelope.permissions:{};
-  if((safe.type==='pointer-move'||safe.type==='pointer-button'||safe.type==='wheel')&&permissions.mouse!==true) return;
-  if(safe.type==='key'&&permissions.keyboard!==true) return;
-  if(safe.type==='release-all'){
-    // Sempre permitido quando a sessão nativa do host está ativa para evitar teclas/botões presos.
-  }else if(safe.type==='gamepad'){
-    // Gamepad é uma permissão isolada, mas a injeção nativa ainda não é habilitada nesta revisão.
-    return;
-  }
-  const helper=ensureSharedControlHost();
-  if(!helper?.stdin?.writable) return;
-  try{helper.stdin.write(JSON.stringify(safe)+'\n')}catch{}
-});
+registerSharedControl({ipcMain,isTrustedAcordSender});
 
 
 function parseUrl(value=''){
@@ -198,10 +121,14 @@ async function createWindow(){
   });
 
   win.webContents.setUserAgent(
-    win.webContents.getUserAgent()+' AcordDesktop/6.6.0'
+    win.webContents.getUserAgent()+' AcordDesktop/6.8.0'
   );
 
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
+
+  win.webContents.on('preload-error',(_event,preloadPath,error)=>{
+    console.error('Acord Desktop preload error:',preloadPath,error);
+  });
 
   win.webContents.setWindowOpenHandler(({url})=>{
     openExternalSafe(url);
@@ -300,6 +227,11 @@ async function createWindow(){
     if(!win.isVisible()) win.show();
 
     if(isAcordUrl(current)){
+      // Marcador não privilegiado para a UI reconhecer inequivocamente o shell Electron.
+      // As ações privilegiadas continuam passando somente pelo preload/IPC validado.
+      win.webContents.executeJavaScript(
+        "window.__ACORD_DESKTOP_SHELL__={available:true,platform:'win32',version:'6.8.0'};"
+      ).catch(()=>{});
       clearTimeout(watchdog);
       watchdog=setTimeout(verifyRenderedUi,3200);
     }

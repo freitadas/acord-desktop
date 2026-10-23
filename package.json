@@ -1,6 +1,6 @@
 {
   "name": "acord-desktop",
-  "version": "6.6.0",
+  "version": "6.8.0",
   "private": true,
   "description": "Acord Desktop independente para Windows",
   "main": "main.js",
@@ -27,6 +27,7 @@
       "icon-512.png",
       "icon.ico",
       "preload.js",
+      "shared-control-host.js",
       "control-host.ps1"
     ],
     "directories": {
