@@ -1,6 +1,6 @@
 {
   "name": "acord-desktop",
-  "version": "6.8.0",
+  "version": "6.8.1",
   "private": true,
   "description": "Acord Desktop independente para Windows",
   "main": "main.js",
@@ -8,9 +8,9 @@
     "start": "electron .",
     "build": "electron-builder --win nsis --x64 --publish never",
     "release": "electron-builder --win nsis --x64 --publish always",
-    "test": "node tests/smoke.js && node tests/security.js",
+    "test": "node test-smoke.js && node test-security.js",
     "verify": "npm test",
-    "test:security": "node tests/security.js"
+    "test:security": "node test-security.js"
   },
   "devDependencies": {
     "electron": "45.0.0",

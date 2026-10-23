@@ -17,8 +17,8 @@ try{
 }
 
 const ACORD_ORIGIN='https://d2-camera.bozzidavi.workers.dev';
-const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.0';
-const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.0&fallback=1';
+const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.1';
+const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.1&fallback=1';
 const UPDATE_CHECK_MS=1000*60*60*6;
 
 function isTrustedAcordSender(event){
@@ -121,7 +121,7 @@ async function createWindow(){
   });
 
   win.webContents.setUserAgent(
-    win.webContents.getUserAgent()+' AcordDesktop/6.8.0'
+    win.webContents.getUserAgent()+' AcordDesktop/6.8.1'
   );
 
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
@@ -230,7 +230,7 @@ async function createWindow(){
       // Marcador não privilegiado para a UI reconhecer inequivocamente o shell Electron.
       // As ações privilegiadas continuam passando somente pelo preload/IPC validado.
       win.webContents.executeJavaScript(
-        "window.__ACORD_DESKTOP_SHELL__={available:true,platform:'win32',version:'6.8.0'};"
+        "window.__ACORD_DESKTOP_SHELL__={available:true,platform:'win32',version:'6.8.1'};"
       ).catch(()=>{});
       clearTimeout(watchdog);
       watchdog=setTimeout(verifyRenderedUi,3200);

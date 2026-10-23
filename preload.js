@@ -1,7 +1,7 @@
 const {contextBridge,ipcRenderer}=require('electron');
 
 const PLATFORM=process.platform;
-const VERSION='6.8.0';
+const VERSION='6.8.1';
 
 const api={
   available:true,
