@@ -1,6 +1,13 @@
 const { app, BrowserWindow, session, shell, desktopCapturer, Notification } = require('electron');
 const path = require('path');
 
+// Windows/Chromium: mantém a captura e a reprodução em SDR/sRGB e evita
+// overlays de vídeo que podem provocar dominante verde em screen share.
+if(process.platform==='win32'){
+  app.commandLine.appendSwitch('force-color-profile','srgb');
+  app.commandLine.appendSwitch('disable-direct-composition-video-overlays');
+}
+
 let autoUpdater=null;
 try{
   ({autoUpdater}=require('electron-updater'));
@@ -9,8 +16,8 @@ try{
 }
 
 const ACORD_ORIGIN='https://d2-camera.bozzidavi.workers.dev';
-const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.4.1';
-const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.4.1&fallback=1';
+const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.4.2';
+const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.4.2&fallback=1';
 const UPDATE_CHECK_MS=1000*60*60*6;
 
 function parseUrl(value=''){
@@ -102,7 +109,7 @@ async function createWindow(){
   });
 
   win.webContents.setUserAgent(
-    win.webContents.getUserAgent()+' AcordDesktop/6.4.1'
+    win.webContents.getUserAgent()+' AcordDesktop/6.4.2'
   );
 
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
