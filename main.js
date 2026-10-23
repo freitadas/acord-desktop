@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, shell, desktopCapturer, Notification, ipcMain } = require('electron');
+const { app, BrowserWindow, session, shell, desktopCapturer, Notification, ipcMain, screen: electronScreen } = require('electron');
 const path = require('path');
 const {registerSharedControl,stopSharedControlHost}=require('./shared-control-host');
 
@@ -17,8 +17,8 @@ try{
 }
 
 const ACORD_ORIGIN='https://d2-camera.bozzidavi.workers.dev';
-const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.1';
-const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.1&fallback=1';
+const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.2';
+const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.2&fallback=1';
 const UPDATE_CHECK_MS=1000*60*60*6;
 
 function isTrustedAcordSender(event){
@@ -29,6 +29,30 @@ function isTrustedAcordSender(event){
 }
 
 registerSharedControl({ipcMain,isTrustedAcordSender});
+
+ipcMain.handle('acord-shared-control-primary-source',async event=>{
+  if(!isTrustedAcordSender(event)) return {ok:false,error:'Origem não autorizada'};
+  if(process.platform!=='win32') return {ok:false,error:'Captura automática requer Windows'};
+  try{
+    const sources=await desktopCapturer.getSources({
+      types:['screen'],
+      thumbnailSize:{width:0,height:0},
+      fetchWindowIcons:false
+    });
+    if(!sources.length) return {ok:false,error:'Nenhum monitor disponível para captura'};
+    const primaryId=String(electronScreen.getPrimaryDisplay()?.id??'');
+    const source=sources.find(item=>String(item.display_id||'')===primaryId) || sources[0];
+    return {
+      ok:true,
+      id:String(source.id||''),
+      name:String(source.name||'Monitor principal').slice(0,120),
+      displayId:String(source.display_id||'')
+    };
+  }catch(error){
+    console.error('Falha ao localizar monitor principal:',error);
+    return {ok:false,error:'Não foi possível acessar o monitor principal'};
+  }
+});
 
 
 function parseUrl(value=''){
@@ -121,7 +145,7 @@ async function createWindow(){
   });
 
   win.webContents.setUserAgent(
-    win.webContents.getUserAgent()+' AcordDesktop/6.8.1'
+    win.webContents.getUserAgent()+' AcordDesktop/6.8.2'
   );
 
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
@@ -230,7 +254,7 @@ async function createWindow(){
       // Marcador não privilegiado para a UI reconhecer inequivocamente o shell Electron.
       // As ações privilegiadas continuam passando somente pelo preload/IPC validado.
       win.webContents.executeJavaScript(
-        "window.__ACORD_DESKTOP_SHELL__={available:true,platform:'win32',version:'6.8.1'};"
+        "window.__ACORD_DESKTOP_SHELL__={available:true,platform:'win32',version:'6.8.2'};"
       ).catch(()=>{});
       clearTimeout(watchdog);
       watchdog=setTimeout(verifyRenderedUi,3200);

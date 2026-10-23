@@ -1,13 +1,14 @@
 const {contextBridge,ipcRenderer}=require('electron');
 
 const PLATFORM=process.platform;
-const VERSION='6.8.1';
+const VERSION='6.8.2';
 
 const api={
   available:true,
   platform:PLATFORM,
   version:VERSION,
   setHostEnabled:enabled=>ipcRenderer.invoke('acord-shared-control-host',!!enabled),
+  getPrimaryDisplaySource:()=>ipcRenderer.invoke('acord-shared-control-primary-source'),
   injectInput:event=>ipcRenderer.send('acord-shared-control-input',event),
   releaseAll:()=>ipcRenderer.send('acord-shared-control-input',{type:'release-all'})
 };
@@ -27,6 +28,7 @@ window.addEventListener('message',async event=>{
   try{
     let result={ok:true};
     if(action==='setHostEnabled') result=await ipcRenderer.invoke('acord-shared-control-host',!!payload.enabled);
+    else if(action==='getPrimaryDisplaySource') result=await ipcRenderer.invoke('acord-shared-control-primary-source');
     else if(action==='injectInput'){ ipcRenderer.send('acord-shared-control-input',payload.event); return; }
     else if(action==='releaseAll'){ ipcRenderer.send('acord-shared-control-input',{type:'release-all'}); return; }
     else throw new Error('Ação de bridge não reconhecida');
