@@ -1,6 +1,6 @@
 {
   "name": "acord-desktop",
-  "version": "6.2.0",
+  "version": "6.3.0",
   "private": true,
   "description": "Acord Desktop independente para Windows",
   "main": "main.js",
@@ -19,6 +19,7 @@
     "artifactName": "Acord-Setup.exe",
     "files": [
       "main.js",
+      "fallback.html",
       "icon-512.png",
       "icon.ico"
     ],

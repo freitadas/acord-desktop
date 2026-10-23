@@ -1,8 +1,16 @@
 const { app, BrowserWindow, session, shell, desktopCapturer, Notification } = require('electron');
-const { autoUpdater } = require('electron-updater');
+const path = require('path');
+
+let autoUpdater=null;
+try{
+  ({autoUpdater}=require('electron-updater'));
+}catch(error){
+  console.warn('Atualizador automático indisponível:',error?.message||error);
+}
 
 const ACORD_ORIGIN='https://d2-camera.bozzidavi.workers.dev';
-const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.2';
+const ACORD_URL=ACORD_ORIGIN+'/index-v63.html?desktop=1&app=6.3';
+const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.3&fallback=1';
 const UPDATE_CHECK_MS=1000*60*60*6;
 
 function parseUrl(value=''){
@@ -34,17 +42,17 @@ function notify(title,body){
 }
 
 function setupUpdater(){
-  if(!app.isPackaged) return;
+  if(!app.isPackaged || !autoUpdater) return;
 
   autoUpdater.autoDownload=true;
   autoUpdater.autoInstallOnAppQuit=true;
 
   autoUpdater.on('update-available',info=>{
-    notify('Acord','Atualização '+String(info?.version||'nova')+' disponível. Baixando em segundo plano.');
+    notify('Acord','Atualização '+String(info?.version||'nova')+' disponível.');
   });
 
   autoUpdater.on('update-downloaded',info=>{
-    notify('Acord atualizado','A versão '+String(info?.version||'nova')+' será instalada quando você fechar o aplicativo.');
+    notify('Acord atualizado','A versão '+String(info?.version||'nova')+' será instalada ao fechar o aplicativo.');
   });
 
   autoUpdater.on('error',error=>{
@@ -56,15 +64,18 @@ function setupUpdater(){
   setInterval(check,UPDATE_CHECK_MS);
 }
 
-async function clearStaleUiCaches(){
+async function clearOnlyUiCaches(){
   const ses=session.defaultSession;
-  try{await ses.clearCache()}catch(error){console.warn('Cache HTTP:',error?.message||error)}
+
+  try{await ses.clearCache()}catch{}
+
+  // Preserva cookies e localStorage da conta. Só remove SW/cache de interface.
   try{
     await ses.clearStorageData({
       origin:ACORD_ORIGIN,
       storages:['serviceworkers','cachestorage']
     });
-  }catch(error){console.warn('Cache do app:',error?.message||error)}
+  }catch{}
 }
 
 async function createWindow(){
@@ -77,7 +88,7 @@ async function createWindow(){
     autoHideMenuBar:true,
     backgroundColor:'#07110e',
     show:false,
-    icon:__dirname+'/icon.ico',
+    icon:path.join(__dirname,'icon.ico'),
     webPreferences:{
       nodeIntegration:false,
       contextIsolation:true,
@@ -89,7 +100,7 @@ async function createWindow(){
   });
 
   win.webContents.setUserAgent(
-    win.webContents.getUserAgent()+' AcordDesktop/6.2'
+    win.webContents.getUserAgent()+' AcordDesktop/6.3'
   );
 
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
@@ -101,29 +112,103 @@ async function createWindow(){
 
   win.webContents.on('will-navigate',(event,url)=>{
     if(isAcordUrl(url)) return;
+    if(url.startsWith('file://')) return;
     event.preventDefault();
     openExternalSafe(url);
   });
 
-  win.webContents.on('render-process-gone',(_event,details)=>{
-    console.warn('Renderizador reiniciado:',details?.reason||'desconhecido');
+  let retries=0;
+  let watchdog=null;
+
+  const showLocalFallback=async()=>{
+    clearTimeout(watchdog);
+    try{
+      await win.loadFile(path.join(__dirname,'fallback.html'));
+    }catch(error){
+      console.error('Fallback do Acord:',error);
+    }
+  };
+
+  const verifyRenderedUi=async()=>{
+    try{
+      const state=await win.webContents.executeJavaScript(`
+        (() => {
+          const login=document.getElementById('login');
+          const app=document.getElementById('appShell');
+          const visible=el=>{
+            if(!el)return false;
+            const s=getComputedStyle(el);
+            const r=el.getBoundingClientRect();
+            return s.display!=='none' && s.visibility!=='hidden' && Number(s.opacity||1)>0 && r.width>0 && r.height>0;
+          };
+          return {
+            hasLogin:!!login,
+            hasApp:!!app,
+            loginVisible:visible(login),
+            appVisible:visible(app),
+            bootReady:!!window.__ACORD_BOOT_READY
+          };
+        })()
+      `);
+
+      if(
+        !state ||
+        (!state.hasLogin && !state.hasApp) ||
+        (!state.loginVisible && !state.appVisible)
+      ){
+        if(retries<1){
+          retries++;
+          await win.loadURL(ACORD_FALLBACK_URL+'&t='+Date.now());
+        }else{
+          await showLocalFallback();
+        }
+      }
+    }catch{
+      if(retries<1){
+        retries++;
+        win.loadURL(ACORD_FALLBACK_URL+'&t='+Date.now()).catch(showLocalFallback);
+      }else{
+        showLocalFallback();
+      }
+    }
+  };
+
+  win.webContents.on('did-finish-load',()=>{
+    clearTimeout(watchdog);
+
+    // The window is shown only after an actual document loaded.
+    if(!win.isVisible()) win.show();
+
+    watchdog=setTimeout(verifyRenderedUi,1800);
   });
 
-  let retried=false;
-  win.webContents.on('did-fail-load',(_event,errorCode,errorDescription,validatedURL,isMainFrame)=>{
-    if(!isMainFrame || retried) return;
-    retried=true;
-    console.warn('Falha ao carregar Acord:',errorCode,errorDescription,validatedURL);
-    setTimeout(()=>win.loadURL(ACORD_URL+'&retry=1').catch(()=>{}),1200);
+  win.webContents.on('did-fail-load',(_event,_code,_description,_url,isMainFrame)=>{
+    if(!isMainFrame) return;
+
+    if(retries<1){
+      retries++;
+      setTimeout(()=>{
+        win.loadURL(ACORD_FALLBACK_URL+'&retry=1&t='+Date.now()).catch(showLocalFallback);
+      },700);
+    }else{
+      showLocalFallback();
+    }
   });
 
-  win.once('ready-to-show',()=>win.show());
-  await win.loadURL(ACORD_URL);
+  // Never leave an invisible window forever.
+  setTimeout(()=>{
+    if(!win.isVisible()) win.show();
+  },3500);
+
+  await win.loadURL(ACORD_URL+'&t='+Date.now()).catch(async()=>{
+    await showLocalFallback();
+  });
+
   return win;
 }
 
 app.whenReady().then(async()=>{
-  await clearStaleUiCaches();
+  await clearOnlyUiCaches();
 
   session.defaultSession.setPermissionCheckHandler(
     (_webContents,permission,requestingOrigin)=>{
@@ -141,15 +226,17 @@ app.whenReady().then(async()=>{
 
   session.defaultSession.setPermissionRequestHandler(
     (webContents,permission,callback)=>{
-      const allowed=isAcordUrl(webContents.getURL()) && [
-        'media',
-        'notifications',
-        'fullscreen',
-        'pointerLock',
-        'clipboard-sanitized-write',
-        'display-capture'
-      ].includes(permission);
-      callback(allowed);
+      callback(
+        isAcordUrl(webContents.getURL()) &&
+        [
+          'media',
+          'notifications',
+          'fullscreen',
+          'pointerLock',
+          'clipboard-sanitized-write',
+          'display-capture'
+        ].includes(permission)
+      );
     }
   );
 
