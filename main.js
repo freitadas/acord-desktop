@@ -9,7 +9,7 @@ try{
 }
 
 const ACORD_ORIGIN='https://d2-camera.bozzidavi.workers.dev';
-const ACORD_URL=ACORD_ORIGIN+'/index-v63.html?desktop=1&app=6.3';
+const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.3';
 const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.3&fallback=1';
 const UPDATE_CHECK_MS=1000*60*60*6;
 
@@ -120,30 +120,6 @@ async function createWindow(){
   let retries=0;
   let watchdog=null;
 
-  const forceStartupLogin=async()=>{
-    try{
-      return await win.webContents.executeJavaScript(`
-        (() => {
-          const login=document.getElementById('login');
-          const app=document.getElementById('appShell');
-          if(window.__ACORD_APP_READY!==true){
-            if(login){
-              login.classList.remove('hidden');
-              login.style.display='grid';
-              login.style.visibility='visible';
-              login.style.opacity='1';
-              login.style.pointerEvents='auto';
-            }
-            if(app) app.classList.add('hidden');
-          }
-          return {hasLogin:!!login,hasApp:!!app,appReady:window.__ACORD_APP_READY===true};
-        })()
-      `);
-    }catch{
-      return null;
-    }
-  };
-
   const showLocalFallback=async()=>{
     clearTimeout(watchdog);
     try{
@@ -155,7 +131,6 @@ async function createWindow(){
 
   const verifyRenderedUi=async()=>{
     try{
-      await forceStartupLogin();
       const state=await win.webContents.executeJavaScript(`
         (() => {
           const login=document.getElementById('login');
@@ -171,8 +146,7 @@ async function createWindow(){
             hasApp:!!app,
             loginVisible:visible(login),
             appVisible:visible(app),
-            bootReady:!!window.__ACORD_BOOT_READY,
-            appReady:window.__ACORD_APP_READY===true
+            bootReady:!!window.__ACORD_BOOT_READY
           };
         })()
       `);
@@ -199,16 +173,10 @@ async function createWindow(){
     }
   };
 
-  win.webContents.on('dom-ready',()=>{
-    forceStartupLogin().catch(()=>{});
-  });
-
-  win.webContents.on('did-finish-load',async()=>{
+  win.webContents.on('did-finish-load',()=>{
     clearTimeout(watchdog);
 
-    // Garante que o login seja renderizado antes de exibir a janela,
-    // salvo quando uma sessão já foi validada e a interface está pronta.
-    await forceStartupLogin();
+    // The window is shown only after an actual document loaded.
     if(!win.isVisible()) win.show();
 
     watchdog=setTimeout(verifyRenderedUi,1800);
