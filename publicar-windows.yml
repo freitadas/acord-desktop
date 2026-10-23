@@ -25,26 +25,47 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
-      - name: Instalar dependências
-        run: npm install
+      - name: Instalar dependências reproduzíveis
+        shell: pwsh
+        run: |
+          if (Test-Path "package-lock.json") { npm ci } else { npm install }
 
-      - name: Testar inicialização
+      - name: Testar inicialização e segurança
         run: npm test
 
       - name: Gerar instalador
-        run: npm run build
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-
-      - name: Validar artefatos
         shell: pwsh
+        env:
+          WINDOWS_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          WINDOWS_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+        run: |
+          if ($env:WINDOWS_CSC_LINK) {
+            $env:CSC_LINK=$env:WINDOWS_CSC_LINK
+            $env:CSC_KEY_PASSWORD=$env:WINDOWS_CSC_KEY_PASSWORD
+            Write-Host "Assinatura de código habilitada."
+          } else {
+            $env:CSC_IDENTITY_AUTO_DISCOVERY="false"
+            Write-Host "Sem certificado configurado; gerando build de teste não assinado."
+          }
+          npm run build
+
+      - name: Validar artefatos e assinatura
+        shell: pwsh
+        env:
+          WINDOWS_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
         run: |
           if (!(Test-Path "dist/Acord-Setup.exe")) {
             throw "Acord-Setup.exe não foi gerado."
           }
           if (!(Test-Path "dist/latest.yml")) {
             throw "latest.yml não foi gerado; a atualização automática ficaria incompleta."
+          }
+          $signature=Get-AuthenticodeSignature "dist/Acord-Setup.exe"
+          Write-Host "Assinatura: $($signature.Status)"
+          if ($env:WINDOWS_CSC_LINK -and $signature.Status -ne 'Valid') {
+            throw "Certificado configurado, mas o instalador não possui assinatura Authenticode válida."
           }
           Get-ChildItem dist
 

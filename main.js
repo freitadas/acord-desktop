@@ -17,8 +17,8 @@ try{
 }
 
 const ACORD_ORIGIN='https://d2-camera.bozzidavi.workers.dev';
-const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.5.0';
-const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.5.0&fallback=1';
+const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.6.0';
+const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.6.0&fallback=1';
 const UPDATE_CHECK_MS=1000*60*60*6;
 
 let sharedControlProcess=null;
@@ -90,8 +90,18 @@ ipcMain.handle('acord-shared-control-host',(event,enabled)=>{
 
 ipcMain.on('acord-shared-control-input',(event,payload)=>{
   if(!sharedControlEnabled || !isTrustedAcordSender(event)) return;
-  const safe=validSharedControlInput(payload);
+  const envelope=payload&&typeof payload==='object'&&payload.event?payload:{event:payload,permissions:{mouse:true,keyboard:true,gamepad:false}};
+  const safe=validSharedControlInput(envelope.event);
   if(!safe) return;
+  const permissions=envelope.permissions&&typeof envelope.permissions==='object'?envelope.permissions:{};
+  if((safe.type==='pointer-move'||safe.type==='pointer-button'||safe.type==='wheel')&&permissions.mouse!==true) return;
+  if(safe.type==='key'&&permissions.keyboard!==true) return;
+  if(safe.type==='release-all'){
+    // Sempre permitido quando a sessão nativa do host está ativa para evitar teclas/botões presos.
+  }else if(safe.type==='gamepad'){
+    // Gamepad é uma permissão isolada, mas a injeção nativa ainda não é habilitada nesta revisão.
+    return;
+  }
   const helper=ensureSharedControlHost();
   if(!helper?.stdin?.writable) return;
   try{helper.stdin.write(JSON.stringify(safe)+'\n')}catch{}
@@ -188,7 +198,7 @@ async function createWindow(){
   });
 
   win.webContents.setUserAgent(
-    win.webContents.getUserAgent()+' AcordDesktop/6.5.0'
+    win.webContents.getUserAgent()+' AcordDesktop/6.6.0'
   );
 
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
