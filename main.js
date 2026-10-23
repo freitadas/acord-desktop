@@ -17,8 +17,8 @@ try{
 }
 
 const ACORD_ORIGIN='https://d2-camera.bozzidavi.workers.dev';
-const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.2';
-const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.2&fallback=1';
+const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.3';
+const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.3&fallback=1';
 const UPDATE_CHECK_MS=1000*60*60*6;
 
 function isTrustedAcordSender(event){
@@ -145,7 +145,7 @@ async function createWindow(){
   });
 
   win.webContents.setUserAgent(
-    win.webContents.getUserAgent()+' AcordDesktop/6.8.2'
+    win.webContents.getUserAgent()+' AcordDesktop/6.8.3'
   );
 
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
@@ -254,7 +254,7 @@ async function createWindow(){
       // Marcador não privilegiado para a UI reconhecer inequivocamente o shell Electron.
       // As ações privilegiadas continuam passando somente pelo preload/IPC validado.
       win.webContents.executeJavaScript(
-        "window.__ACORD_DESKTOP_SHELL__={available:true,platform:'win32',version:'6.8.2'};"
+        "window.__ACORD_DESKTOP_SHELL__={available:true,platform:'win32',version:'6.8.3'};"
       ).catch(()=>{});
       clearTimeout(watchdog);
       watchdog=setTimeout(verifyRenderedUi,3200);
@@ -336,18 +336,28 @@ app.whenReady().then(async()=>{
 
   if(session.defaultSession.setDisplayMediaRequestHandler){
     session.defaultSession.setDisplayMediaRequestHandler(
-      async(_request,callback)=>{
+      async(request,callback)=>{
         try{
+          if(!isAcordUrl(request?.securityOrigin||'')){
+            callback(null);
+            return;
+          }
           const sources=await desktopCapturer.getSources({
-            types:['screen','window'],
-            thumbnailSize:{width:1,height:1}
+            types:['screen'],
+            thumbnailSize:{width:0,height:0},
+            fetchWindowIcons:false
           });
-          callback({video:sources[0],audio:'loopback'});
-        }catch{
-          callback({});
+          if(!sources.length){callback(null);return}
+          const primaryId=String(electronScreen.getPrimaryDisplay()?.id??'');
+          const primary=sources.find(item=>String(item.display_id||'')===primaryId) || sources[0];
+          const grant={video:primary};
+          if(request?.audioRequested) grant.audio='loopback';
+          callback(grant);
+        }catch(error){
+          console.error('Falha ao autorizar captura de tela:',error);
+          callback(null);
         }
-      },
-      {useSystemPicker:true}
+      }
     );
   }
 
