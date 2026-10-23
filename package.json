@@ -1,13 +1,15 @@
 {
   "name": "acord-desktop",
-  "version": "6.3.0",
+  "version": "6.4.0",
   "private": true,
   "description": "Acord Desktop independente para Windows",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win nsis --x64 --publish never",
-    "release": "electron-builder --win nsis --x64 --publish always"
+    "release": "electron-builder --win nsis --x64 --publish always",
+    "test": "node tests/smoke.js",
+    "verify": "npm test"
   },
   "devDependencies": {
     "electron": "45.0.0",
@@ -20,6 +22,7 @@
     "files": [
       "main.js",
       "fallback.html",
+      "loading.html",
       "icon-512.png",
       "icon.ico"
     ],
@@ -58,5 +61,8 @@
   "author": "Acord",
   "dependencies": {
     "electron-updater": "6.8.9"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

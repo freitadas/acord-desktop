@@ -9,8 +9,8 @@ try{
 }
 
 const ACORD_ORIGIN='https://d2-camera.bozzidavi.workers.dev';
-const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.3';
-const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.3&fallback=1';
+const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.4';
+const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.4&fallback=1';
 const UPDATE_CHECK_MS=1000*60*60*6;
 
 function parseUrl(value=''){
@@ -95,12 +95,14 @@ async function createWindow(){
       sandbox:true,
       webSecurity:true,
       allowRunningInsecureContent:false,
-      webviewTag:false
+      webviewTag:false,
+      safeDialogs:true,
+      backgroundThrottling:false
     }
   });
 
   win.webContents.setUserAgent(
-    win.webContents.getUserAgent()+' AcordDesktop/6.3'
+    win.webContents.getUserAgent()+' AcordDesktop/6.4'
   );
 
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
@@ -119,17 +121,24 @@ async function createWindow(){
 
   let retries=0;
   let watchdog=null;
+  let fallbackOpening=false;
 
   const showLocalFallback=async()=>{
+    if(fallbackOpening || win.isDestroyed()) return;
+    fallbackOpening=true;
     clearTimeout(watchdog);
     try{
       await win.loadFile(path.join(__dirname,'fallback.html'));
+      if(!win.isVisible()) win.show();
     }catch(error){
       console.error('Fallback do Acord:',error);
+    }finally{
+      fallbackOpening=false;
     }
   };
 
   const verifyRenderedUi=async()=>{
+    if(win.isDestroyed() || !isAcordUrl(win.webContents.getURL())) return;
     try{
       const state=await win.webContents.executeJavaScript(`
         (() => {
@@ -146,7 +155,9 @@ async function createWindow(){
             hasApp:!!app,
             loginVisible:visible(login),
             appVisible:visible(app),
-            bootReady:!!window.__ACORD_BOOT_READY
+            bootReady:!!window.__ACORD_BOOT_READY,
+            appReady:!!window.__ACORD_APP_READY,
+            diagnostics:window.__ACORD_DIAGNOSTICS?.snapshot?.().slice(-8)||[]
           };
         })()
       `);
@@ -156,53 +167,80 @@ async function createWindow(){
         (!state.hasLogin && !state.hasApp) ||
         (!state.loginVisible && !state.appVisible)
       ){
+        console.warn('Acord UI não renderizada:',state);
         if(retries<1){
           retries++;
-          await win.loadURL(ACORD_FALLBACK_URL+'&t='+Date.now());
+          await win.loadURL(ACORD_FALLBACK_URL+'&retry=ui&t='+Date.now());
         }else{
           await showLocalFallback();
         }
       }
-    }catch{
+    }catch(error){
+      console.warn('Falha ao verificar interface do Acord:',error?.message||error);
       if(retries<1){
         retries++;
-        win.loadURL(ACORD_FALLBACK_URL+'&t='+Date.now()).catch(showLocalFallback);
+        win.loadURL(ACORD_FALLBACK_URL+'&retry=verify&t='+Date.now()).catch(showLocalFallback);
       }else{
         showLocalFallback();
       }
     }
   };
 
-  win.webContents.on('did-finish-load',()=>{
+  const armNavigationWatchdog=()=>{
     clearTimeout(watchdog);
+    watchdog=setTimeout(()=>{
+      if(!win.isDestroyed() && isAcordUrl(win.webContents.getURL())){
+        verifyRenderedUi();
+      }else if(!win.isDestroyed()){
+        showLocalFallback();
+      }
+    },15000);
+  };
 
-    // The window is shown only after an actual document loaded.
+  win.webContents.on('did-finish-load',()=>{
+    const current=win.webContents.getURL();
     if(!win.isVisible()) win.show();
 
-    watchdog=setTimeout(verifyRenderedUi,1800);
+    if(isAcordUrl(current)){
+      clearTimeout(watchdog);
+      watchdog=setTimeout(verifyRenderedUi,3200);
+    }
   });
 
   win.webContents.on('did-fail-load',(_event,_code,_description,_url,isMainFrame)=>{
-    if(!isMainFrame) return;
+    if(!isMainFrame || fallbackOpening) return;
+    clearTimeout(watchdog);
 
     if(retries<1){
       retries++;
       setTimeout(()=>{
-        win.loadURL(ACORD_FALLBACK_URL+'&retry=1&t='+Date.now()).catch(showLocalFallback);
+        armNavigationWatchdog();
+        win.loadURL(ACORD_FALLBACK_URL+'&retry=network&t='+Date.now()).catch(showLocalFallback);
       },700);
     }else{
       showLocalFallback();
     }
   });
 
-  // Never leave an invisible window forever.
-  setTimeout(()=>{
-    if(!win.isVisible()) win.show();
-  },3500);
-
-  await win.loadURL(ACORD_URL+'&t='+Date.now()).catch(async()=>{
-    await showLocalFallback();
+  win.on('unresponsive',()=>{
+    console.warn('Janela do Acord não está respondendo.');
   });
+
+  // Mostra uma tela local imediatamente; assim o usuário nunca vê uma janela vazia
+  // enquanto a página remota, a sessão e os scripts são carregados.
+  try{
+    await win.loadFile(path.join(__dirname,'loading.html'));
+  }catch(error){
+    console.warn('Tela inicial local indisponível:',error?.message||error);
+  }
+  if(!win.isVisible()) win.show();
+
+  armNavigationWatchdog();
+  try{
+    await win.loadURL(ACORD_URL+'&t='+Date.now());
+  }catch{
+    await showLocalFallback();
+  }
 
   return win;
 }

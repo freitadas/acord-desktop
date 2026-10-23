@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: acord-windows-release
+  cancel-in-progress: false
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -25,27 +29,36 @@ jobs:
       - name: Instalar dependências
         run: npm install
 
-      - name: Limpar release da mesma versão em reexecução
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          gh release delete "v${VERSION}" --yes --cleanup-tag || true
+      - name: Testar inicialização
+        run: npm test
 
-      - name: Gerar e publicar instalador
-        run: npm run release
+      - name: Gerar instalador
+        run: npm run build
         env:
-          GH_TOKEN: ${{ github.token }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
-      - name: Confirmar instalador e atualização automática
+      - name: Validar artefatos
         shell: pwsh
         run: |
           if (!(Test-Path "dist/Acord-Setup.exe")) {
             throw "Acord-Setup.exe não foi gerado."
           }
           if (!(Test-Path "dist/latest.yml")) {
-            throw "latest.yml não foi gerado."
+            throw "latest.yml não foi gerado; a atualização automática ficaria incompleta."
           }
           Get-ChildItem dist
+
+      - name: Publicar sem apagar release válida
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}"
+          FILES=(dist/Acord-Setup.exe dist/latest.yml)
+          while IFS= read -r -d '' file; do FILES+=("$file"); done < <(find dist -maxdepth 1 -type f -name '*.blockmap' -print0)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${FILES[@]}" --clobber
+          else
+            gh release create "$TAG" "${FILES[@]}" --title "Acord ${TAG}" --generate-notes
+          fi
