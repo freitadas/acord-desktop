@@ -1,12 +1,13 @@
 const {contextBridge,ipcRenderer}=require('electron');
 
 const PLATFORM=process.platform;
-const VERSION='6.8.3';
+const VERSION='6.8.4';
 
 const api={
   available:true,
   platform:PLATFORM,
   version:VERSION,
+  ping:()=>ipcRenderer.invoke('acord-desktop-ping'),
   setHostEnabled:enabled=>ipcRenderer.invoke('acord-shared-control-host',!!enabled),
   getPrimaryDisplaySource:()=>ipcRenderer.invoke('acord-shared-control-primary-source'),
   injectInput:event=>ipcRenderer.send('acord-shared-control-input',event),

@@ -51,34 +51,40 @@ function validSharedControlInput(value){
   return null;
 }
 
+function setSharedControlHostEnabled(enabled){
+  if(process.platform!=='win32') return {ok:false,error:'Controle compartilhado do host requer Windows'};
+  if(!enabled){stopSharedControlHost();return {ok:true,enabled:false}}
+  const helper=ensureSharedControlHost();
+  if(!helper) return {ok:false,error:'Não foi possível iniciar o controle do Windows'};
+  sharedControlEnabled=true;
+  return {ok:true,enabled:true};
+}
+
+function injectSharedControlInput(payload){
+  if(!sharedControlEnabled) return {ok:false,error:'Controle compartilhado inativo'};
+  const envelope=payload&&typeof payload==='object'&&payload.event?payload:{event:payload,permissions:{mouse:true,keyboard:true,gamepad:false}};
+  const safe=validSharedControlInput(envelope.event);
+  if(!safe) return {ok:false,error:'Entrada inválida'};
+  const permissions=envelope.permissions&&typeof envelope.permissions==='object'?envelope.permissions:{};
+  if((safe.type==='pointer-move'||safe.type==='pointer-button'||safe.type==='wheel')&&permissions.mouse!==true) return {ok:false,error:'Mouse não autorizado'};
+  if(safe.type==='key'&&permissions.keyboard!==true) return {ok:false,error:'Teclado não autorizado'};
+  if(safe.type==='gamepad') return {ok:false,error:'Gamepad ainda não disponível'};
+  const helper=ensureSharedControlHost();
+  if(!helper?.stdin?.writable) return {ok:false,error:'Helper do Windows indisponível'};
+  try{helper.stdin.write(JSON.stringify(safe)+'\\n');return {ok:true}}
+  catch{return {ok:false,error:'Falha ao enviar comando ao Windows'}}
+}
+
 function registerSharedControl({ipcMain,isTrustedAcordSender}){
   ipcMain.handle('acord-shared-control-host',(event,enabled)=>{
     if(!isTrustedAcordSender(event)) return {ok:false,error:'Origem não autorizada'};
-    if(process.platform!=='win32') return {ok:false,error:'Controle compartilhado do host requer Windows'};
-    if(!enabled){stopSharedControlHost();return {ok:true,enabled:false}}
-    const helper=ensureSharedControlHost();
-    if(!helper) return {ok:false,error:'Não foi possível iniciar o controle do Windows'};
-    sharedControlEnabled=true;
-    return {ok:true,enabled:true};
+    return setSharedControlHostEnabled(!!enabled);
   });
 
   ipcMain.on('acord-shared-control-input',(event,payload)=>{
-    if(!sharedControlEnabled || !isTrustedAcordSender(event)) return;
-    const envelope=payload&&typeof payload==='object'&&payload.event?payload:{event:payload,permissions:{mouse:true,keyboard:true,gamepad:false}};
-    const safe=validSharedControlInput(envelope.event);
-    if(!safe) return;
-    const permissions=envelope.permissions&&typeof envelope.permissions==='object'?envelope.permissions:{};
-    if((safe.type==='pointer-move'||safe.type==='pointer-button'||safe.type==='wheel')&&permissions.mouse!==true) return;
-    if(safe.type==='key'&&permissions.keyboard!==true) return;
-    if(safe.type==='release-all'){
-      // Sempre permitido para evitar teclas/botões presos.
-    }else if(safe.type==='gamepad'){
-      return;
-    }
-    const helper=ensureSharedControlHost();
-    if(!helper?.stdin?.writable) return;
-    try{helper.stdin.write(JSON.stringify(safe)+'\n')}catch{}
+    if(!isTrustedAcordSender(event)) return;
+    injectSharedControlInput(payload);
   });
 }
 
-module.exports={registerSharedControl,stopSharedControlHost,validSharedControlInput};
+module.exports={registerSharedControl,stopSharedControlHost,validSharedControlInput,setSharedControlHostEnabled,injectSharedControlInput};
