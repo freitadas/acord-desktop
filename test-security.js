@@ -14,4 +14,4 @@ for(const marker of ["permissions.mouse!==true","permissions.keyboard!==true","s
 for(const marker of ['contextBridge.exposeInMainWorld','AcordDesktopControl']) must(preload,marker);
 for(const marker of ['WINDOWS_CSC_LINK','WINDOWS_CSC_KEY_PASSWORD','Get-AuthenticodeSignature']) must(workflow,marker);
 
-console.log(JSON.stringify({ok:true,desktopSecurity:true,version:'6.8.4'},null,2));
+console.log(JSON.stringify({ok:true,desktopSecurity:true,version:'6.8.5'},null,2));

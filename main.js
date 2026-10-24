@@ -1,5 +1,6 @@
 const { app, BrowserWindow, session, shell, desktopCapturer, Notification, ipcMain, screen: electronScreen, protocol } = require('electron');
 const path = require('path');
+const crypto = require('crypto');
 const {registerSharedControl,stopSharedControlHost,setSharedControlHostEnabled,injectSharedControlInput}=require('./shared-control-host');
 
 // Ponte de emergência independente do preload. O esquema só existe dentro do Acord Desktop.
@@ -23,8 +24,8 @@ try{
 }
 
 const ACORD_ORIGIN='https://d2-camera.bozzidavi.workers.dev';
-const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.4';
-const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.4&fallback=1';
+const ACORD_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.5';
+const ACORD_FALLBACK_URL=ACORD_ORIGIN+'/?desktop=1&app=6.8.5&fallback=1';
 const UPDATE_CHECK_MS=1000*60*60*6;
 
 function isTrustedAcordSender(event){
@@ -36,10 +37,9 @@ function isTrustedAcordSender(event){
 
 registerSharedControl({ipcMain,isTrustedAcordSender});
 
-ipcMain.handle('acord-desktop-ping',event=>isTrustedAcordSender(event)?{ok:true,available:true,platform:process.platform,version:'6.8.4'}:{ok:false,error:'Origem não autorizada'});
+ipcMain.handle('acord-desktop-ping',event=>isTrustedAcordSender(event)?{ok:true,available:true,platform:process.platform,version:'6.8.5'}:{ok:false,error:'Origem não autorizada'});
 
-ipcMain.handle('acord-shared-control-primary-source',async event=>{
-  if(!isTrustedAcordSender(event)) return {ok:false,error:'Origem não autorizada'};
+async function getPrimaryDisplaySourceInfo(){
   if(process.platform!=='win32') return {ok:false,error:'Captura automática requer Windows'};
   try{
     const sources=await desktopCapturer.getSources({
@@ -60,6 +60,11 @@ ipcMain.handle('acord-shared-control-primary-source',async event=>{
     console.error('Falha ao localizar monitor principal:',error);
     return {ok:false,error:'Não foi possível acessar o monitor principal'};
   }
+}
+
+ipcMain.handle('acord-shared-control-primary-source',async event=>{
+  if(!isTrustedAcordSender(event)) return {ok:false,error:'Origem não autorizada'};
+  return getPrimaryDisplaySourceInfo();
 });
 
 
@@ -102,7 +107,7 @@ async function registerNativeProtocolBridge(){
     try{
       const url=new URL(request.url);
       const action=(url.hostname+url.pathname).replace(/^\/+|\/+$/g,'');
-      if(action==='control/ping') return nativeBridgeResponse({ok:true,available:true,platform:process.platform,version:'6.8.4'});
+      if(action==='control/ping') return nativeBridgeResponse({ok:true,available:true,platform:process.platform,version:'6.8.5'});
       if(action==='control/host'){
         const body=request.method==='POST'?await request.json().catch(()=>({})):{};
         return nativeBridgeResponse(setSharedControlHostEnabled(!!body.enabled));
@@ -112,13 +117,7 @@ async function registerNativeProtocolBridge(){
         return nativeBridgeResponse(injectSharedControlInput(body));
       }
       if(action==='control/release') return nativeBridgeResponse(injectSharedControlInput({event:{type:'release-all'},permissions:{mouse:true,keyboard:true}}));
-      if(action==='control/primary'){
-        const sources=await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:0,height:0},fetchWindowIcons:false});
-        if(!sources.length) return nativeBridgeResponse({ok:false,error:'Nenhum monitor disponível'});
-        const primaryId=String(electronScreen.getPrimaryDisplay()?.id??'');
-        const source=sources.find(item=>String(item.display_id||'')===primaryId)||sources[0];
-        return nativeBridgeResponse({ok:true,id:String(source.id||''),name:String(source.name||'Monitor principal').slice(0,120),displayId:String(source.display_id||'')});
-      }
+      if(action==='control/primary') return nativeBridgeResponse(await getPrimaryDisplaySourceInfo());
       return nativeBridgeResponse({ok:false,error:'Ação desconhecida'},404);
     }catch(error){
       console.error('Ponte nativa alternativa:',error);
@@ -184,6 +183,9 @@ async function clearOnlyUiCaches(){
 }
 
 async function createWindow(){
+  const nativeConsoleToken=crypto.randomBytes(24).toString('hex');
+  const nativeConsolePrefix='__ACORD_NATIVE_V685__:';
+
   const win=new BrowserWindow({
     width:1360,
     height:860,
@@ -208,7 +210,7 @@ async function createWindow(){
   });
 
   win.webContents.setUserAgent(
-    win.webContents.getUserAgent()+' AcordDesktop/6.8.4'
+    win.webContents.getUserAgent()+' AcordDesktop/6.8.5'
   );
 
   win.webContents.on('will-attach-webview',event=>event.preventDefault());
@@ -216,6 +218,60 @@ async function createWindow(){
   win.webContents.on('preload-error',(_event,preloadPath,error)=>{
     console.error('Acord Desktop preload error:',preloadPath,error);
   });
+
+
+  async function sendConsoleBridgeReply(id,result,error=''){
+    if(!id || win.isDestroyed()) return;
+    const message={__acordDesktopConsoleBridgeReply:true,id:String(id)};
+    if(error) message.error=String(error);
+    else message.result=result;
+    try{
+      await win.webContents.executeJavaScript(`window.postMessage(${JSON.stringify(message)}, '*')`,true);
+    }catch{}
+  }
+
+  async function handleConsoleNativeCommand(raw){
+    if(!isAcordUrl(win.webContents.getURL())) return;
+    if(typeof raw!=='string' || !raw.startsWith(nativeConsolePrefix)) return;
+    let request=null;
+    try{request=JSON.parse(raw.slice(nativeConsolePrefix.length))}catch{return}
+    if(!request || request.token!==nativeConsoleToken || !request.id) return;
+    const action=String(request.action||'');
+    const payload=request.payload&&typeof request.payload==='object'?request.payload:{};
+    try{
+      let result={ok:false,error:'Ação nativa desconhecida'};
+      if(action==='ping') result={ok:true,available:true,platform:process.platform,version:'6.8.5',transport:'console'};
+      else if(action==='setHostEnabled') result=setSharedControlHostEnabled(!!payload.enabled);
+      else if(action==='getPrimaryDisplaySource') result=await getPrimaryDisplaySourceInfo();
+      else if(action==='injectInput') result=injectSharedControlInput(payload);
+      else if(action==='releaseAll') result=injectSharedControlInput({event:{type:'release-all'},permissions:{mouse:true,keyboard:true}});
+      await sendConsoleBridgeReply(request.id,result);
+    }catch(error){
+      await sendConsoleBridgeReply(request.id,null,error?.message||'Falha na integração nativa');
+    }
+  }
+
+  win.webContents.on('console-message',(...args)=>{
+    const details=args[1] && typeof args[1]==='object' ? args[1] : null;
+    const message=details?.message ?? args[2];
+    if(typeof message==='string' && message.startsWith(nativeConsolePrefix)){
+      handleConsoleNativeCommand(message).catch(error=>console.error('Ponte nativa por console:',error));
+    }
+  });
+
+  function publishDesktopBridgeState(){
+    if(win.isDestroyed() || !isAcordUrl(win.webContents.getURL())) return;
+    const state={available:true,platform:process.platform,version:'6.8.5',transport:'console',token:nativeConsoleToken};
+    const ready={__acordDesktopConsoleBridgeReady:true,platform:process.platform,version:'6.8.5',transport:'console',token:nativeConsoleToken};
+    win.webContents.executeJavaScript(
+      `window.__ACORD_DESKTOP_SHELL__=${JSON.stringify({available:true,platform:'win32',version:'6.8.5'})};`+
+      `window.__ACORD_DESKTOP_NATIVE__=${JSON.stringify(state)};`+
+      `window.postMessage(${JSON.stringify(ready)}, '*');`,
+      true
+    ).catch(()=>{});
+  }
+
+  win.webContents.on('dom-ready',publishDesktopBridgeState);
 
   win.webContents.setWindowOpenHandler(({url})=>{
     openExternalSafe(url);
@@ -314,11 +370,9 @@ async function createWindow(){
     if(!win.isVisible()) win.show();
 
     if(isAcordUrl(current)){
-      // Marcador não privilegiado para a UI reconhecer inequivocamente o shell Electron.
-      // As ações privilegiadas continuam passando somente pelo preload/IPC validado.
-      win.webContents.executeJavaScript(
-        "window.__ACORD_DESKTOP_SHELL__={available:true,platform:'win32',version:'6.8.4'};"
-      ).catch(()=>{});
+      // Publica novamente as bridges depois do carregamento para cobrir páginas remotas
+      // em que o preload/contextBridge tenha sido atrasado ou bloqueado.
+      publishDesktopBridgeState();
       clearTimeout(watchdog);
       watchdog=setTimeout(verifyRenderedUi,3200);
     }

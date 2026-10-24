@@ -6,12 +6,12 @@ const read=name=>fs.readFileSync(path.join(root,name),'utf8');
 const fail=message=>{throw new Error(message)};
 execFileSync(process.execPath,['--check',path.join(root,'main.js')],{stdio:'pipe'});
 const pkg=JSON.parse(read('package.json'));
-if(pkg.version!=='6.8.4') fail('Versão desktop incorreta.');
+if(pkg.version!=='6.8.5') fail('Versão desktop incorreta.');
 for(const file of ['main.js','loading.html','fallback.html','icon-512.png','icon.ico','preload.js','shared-control-host.js','control-host.ps1']){
   if(!fs.existsSync(path.join(root,file))) fail('Arquivo desktop ausente: '+file);
 }
 const main=read('main.js');
-for(const marker of ['AcordDesktop/6.8.4','__ACORD_DESKTOP_SHELL__','preload-error','loading.html','nodeIntegration:false','contextIsolation:true','sandbox:true','webSecurity:true',"appendSwitch('force-color-profile','srgb')","appendSwitch('disable-direct-composition-video-overlays')",'acord-shared-control-primary-source',"types:['screen']",'electronScreen.getPrimaryDisplay','registerNativeProtocolBridge','acord-native','acord-desktop-ping']){
+for(const marker of ['AcordDesktop/6.8.5','__ACORD_DESKTOP_SHELL__','preload-error','loading.html','nodeIntegration:false','contextIsolation:true','sandbox:true','webSecurity:true',"appendSwitch('force-color-profile','srgb')","appendSwitch('disable-direct-composition-video-overlays')",'acord-shared-control-primary-source',"types:['screen']",'electronScreen.getPrimaryDisplay','registerNativeProtocolBridge','acord-native','acord-desktop-ping','__ACORD_NATIVE_V685__','__ACORD_DESKTOP_NATIVE__','console-message','__acordDesktopConsoleBridgeReply']){
   if(!main.includes(marker)) fail('Proteção/boot desktop ausente: '+marker);
 }
 const preload=read('preload.js');
